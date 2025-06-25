@@ -2,7 +2,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
 import uvicorn
+import requests
+import uuid
+import os
+from datetime import datetime
 
 app = FastAPI(title="Weather Data System", version="1.0.0")
 
@@ -13,6 +18,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+load_dotenv()
+api_key = os.getenv("WEATHERSTACK_API_KEY")
+if api_key is None:
+    raise RuntimeError("Weatherstack API key is required.")
 
 # In-memory storage for weather data
 weather_storage: Dict[str, Dict[str, Any]] = {}
@@ -34,7 +44,32 @@ async def create_weather_request(request: WeatherRequest):
     3. Stores combined data with unique ID in memory
     4. Returns the ID to frontend
     """
-    pass
+
+    try:
+        params = {
+            "access_key": api_key,
+            "query": request.location,
+            "units": "m"
+        }
+
+        url = "http://api.weatherstack.com/current"
+        
+        response = requests.get(url, params=params)
+        print(response.json())
+        response.raise_for_status()
+            
+        weather_data = response.json()
+        if 'error' in weather_data:
+            raise HTTPException(status_code=400, detail=weather_data['error']['info'])
+
+        memory_id = str(uuid.uuid4())
+        weather_storage[memory_id] = weather_data
+        print(f"Stored weather data with ID: {memory_id}")
+
+        return {"id": memory_id}
+    except requests.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Weather API error: {str(e)}")
+        
 
 @app.get("/weather/{weather_id}")
 async def get_weather_data(weather_id: str):
